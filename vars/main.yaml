@@ -1,6 +1,6 @@
 nameserver1: '192.168.11.91'
 nameserver2: '192.168.11.92'
-user: nix.join.ldap
+user: 
 passwd: ''
 domain_name: cde.ruru.lan
 group: acc_srv_nix_sec_adm
