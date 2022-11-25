@@ -1,0 +1,89 @@
+- name: Install packages
+  apt:
+    name:
+      - realmd
+      - libnss-sss
+      - libpam-sss
+      - sssd
+      - sssd-tools
+      - adcli
+      - samba-common-bin
+      - oddjob
+      - oddjob-mkhomedir
+      - packagekit
+    state: present
+    update_cache: true
+
+- name: "Set hostname {{ ansible_hostname }}.{{ domain_name }}"
+  command: "hostnamectl set-hostname {{ ansible_hostname }}.{{ domain_name }}"
+
+- name: Stop and disable systemd-resolved
+  service:
+    name: systemd-resolved
+    state: stopped
+    enabled: false
+
+- name: Edit /etc/resolv.conf
+  lineinfile:
+    path: /etc/resolv.conf
+    regexp: 'nameserver 127.0.0.53'
+    line: "nameserver {{ nameserver1 }}"
+    backrefs: yes
+
+- name: Add nameserver
+  lineinfile:
+    path: /etc/resolv.conf
+    insertafter: '^nameserver'
+    line: "nameserver {{ nameserver2 }}"
+    state: present
+
+- name: Check realm
+  command: realm discover cde.ruru.lan
+  register: realm
+
+- debug:
+    msg: "{{ realm.stdout_lines }}"
+
+- name: Join domain
+  expect:
+    command: "realm join -U {{ user }} {{ domain_name }}"
+    responses: 
+      Password for *: "{{ passwd }}"
+  no_log: true
+
+- name: Edit /usr/share/pam-configs/mkhomedir
+  lineinfile:
+    path: /usr/share/pam-configs/mkhomedir
+    backrefs: true
+    regexp: "{{ item.regexp}}"
+    line: "{{ item.line }}"
+  loop:
+    - { regexp: "Default: no", line: "Default: yes" }
+    - { regexp: "Priority: 0", line: "Priority: 900" }
+
+- name: Delete string in /usr/share/pam-configs/mkhomedir
+  lineinfile:
+    path: /usr/share/pam-configs/mkhomedir
+    search_string: 'Session-Interactive-Only: yes'
+    state: absent
+
+- name: Enable home dir
+  command: "pam-auth-update --enable mkhomedir"
+
+- name: Restart SSSD
+  service:
+    name: sssd
+    state: restarted
+
+- name: setup a “deny all” rule to deny all AD users by default
+  command: realm deny --all
+
+- name: Enable security group
+  command: "realm permit -g {{ group }}@{{ domain_name }}"
+
+- name: Add security group in sudoers file
+  lineinfile:
+    path: /etc/sudoers.d/domain-admins
+    line: "%{{ group }}@{{ domain_name }} ALL=(ALL) NOPASSWD: ALL"
+    create: yes
+
